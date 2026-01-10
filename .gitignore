@@ -1,0 +1,14 @@
+build/
+dist/
+venv/
+__pycache__/
+*.pyc
+.env
+.DS_Store
+.idea/
+.vscode/
+*.log
+node_modules/
+
+app_resource
+ffmpeg
