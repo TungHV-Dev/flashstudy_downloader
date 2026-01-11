@@ -10,5 +10,6 @@ __pycache__/
 *.log
 node_modules/
 
+*.spec
 app_resource
 ffmpeg

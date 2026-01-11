@@ -4,11 +4,8 @@ import tkinter as tk
 import time
 import sys 
 import subprocess
-import webbrowser
 import re
 import shutil
-import contextlib
-import threading
 import stat
 from tkinter import filedialog as fd
 from tkinter import messagebox, ttk
@@ -839,46 +836,6 @@ class FlashStudyDownloaderApp:
 
         raise RuntimeError("Không tìm thấy ffmpeg.")
 
-    def download_video_by_ffmpeg(self, url: str, output_path: str):
-        is_win = sys.platform.startswith("win")
-        bin_name = "ffmpeg.exe" if is_win else "ffmpeg"
-        base = app_root_dir()
-        candidates = [
-            os.path.join(base, "ffmpeg", "win", bin_name),
-            os.path.join(base, "ffmpeg", "mac", "ffmpeg"),
-            os.path.join(base, "ffmpeg", bin_name),
-        ]
-        ffmpeg_bin = next((p for p in candidates if os.path.isfile(p)), None)
-        if not ffmpeg_bin:
-            return False, "Không tìm thấy ffmpeg trong thư mục ffmpeg."
-        if not is_win:
-            try:
-                os.chmod(ffmpeg_bin, os.stat(ffmpeg_bin).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-            except Exception:
-                pass
-
-        print("Downloading video via ffmpeg:", ffmpeg_bin)
-
-        cmd = [
-            ffmpeg_bin,
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            url,
-            "-c",
-            "copy",
-            "-bsf:a",
-            "aac_adtstoasc",
-            output_path,
-        ]
-        try:
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True, None
-        except Exception as e:
-            return False, str(e)
-
     def download_video_by_ytdlp(self, url: str, output_path: str):
         auth_token = (self.configuration or {}).get("video_key_token") or ""
         if not auth_token:
@@ -900,8 +857,14 @@ class FlashStudyDownloaderApp:
             except Exception:
                 pass
 
+        python_bin = sys.executable
+        if getattr(sys, "frozen", False):
+            python_bin = shutil.which("python3") or shutil.which("python")
+            if not python_bin:
+                return False, "Không tìm thấy python3 để chạy yt_dlp."
+
         cmd = [
-            sys.executable,
+            python_bin,
             "-m",
             "yt_dlp",
             "--add-header",
