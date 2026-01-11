@@ -13,6 +13,7 @@ import stat
 from tkinter import filedialog as fd
 from tkinter import messagebox, ttk
 from core.api import FlashStudyAPI
+from core.utils import load_config
 
 def app_root_dir() -> str:
     """
@@ -33,6 +34,7 @@ def app_root_dir() -> str:
 
 
 RESOURCE_DIR = os.path.join(app_root_dir(), "app_resource")
+CONFIG_FILE_PATH = os.path.join(RESOURCE_DIR, ".conf.json")
 TEMP_FILE_PATH = os.path.join(RESOURCE_DIR, ".temp.data")
 
 class FlashStudyDownloaderApp:
@@ -45,7 +47,8 @@ class FlashStudyDownloaderApp:
         # ---- ttk theme & styles ----
         self._init_style()
 
-        # Load temp store
+        # Load config + temp store
+        self.configuration = load_config(CONFIG_FILE_PATH)
         self.temp = self._load_temp_store()
 
         # API client
@@ -109,7 +112,7 @@ class FlashStudyDownloaderApp:
         eye_btn.grid(row=4, column=1, sticky="w", padx=(8, 0), pady=(0, 4))
 
         # remember me
-        self.remember_me = tk.BooleanVar(value=bool(self.temp.get("last_password")))
+        self.remember_me = tk.BooleanVar(value=True)
         ttk.Checkbutton(wrapper, text="Ghi nhớ mật khẩu", variable=self.remember_me).grid(
             row=5, column=0, sticky="w", pady=(0, 8)
         )
@@ -414,54 +417,97 @@ class FlashStudyDownloaderApp:
         win.transient(self.root)
         win.grab_set()
         win.minsize(720, 420)
+        popup_bg = "#F1F5F9"
+        win.configure(bg=popup_bg)
+        win.update_idletasks()
+        sw = win.winfo_screenwidth()
+        sh = win.winfo_screenheight()
+        ww = win.winfo_width() or 720
+        wh = win.winfo_height() or 420
+        win.geometry(f"{ww}x{wh}+{int((sw - ww) / 2)}+{int((sh - wh) / 2.4)}")
 
         # --- main container ---
-        container = ttk.Frame(win, padding=16)
+        container = tk.Frame(win, bg=popup_bg, padx=16, pady=16)
         container.pack(expand=True, fill="both")
 
         # Header
-        ttk.Label(container, text=title, style="Title.TLabel").pack(anchor="w", pady=(0, 8))
+        tk.Label(container, text=title, bg=popup_bg, fg="#0F172A", font=("SF Pro Text", 20, "bold")).pack(
+            anchor="w", pady=(0, 8)
+        )
 
         # --- Video section ---
-        video_frame = ttk.LabelFrame(container, text="File video", padding=12)
-        video_frame.pack(fill="x", pady=(0, 8))
+        tk.Label(container, text="File video", bg=popup_bg, fg="#0F172A", font=("SF Pro Text", 12, "bold")).pack(
+            anchor="w"
+        )
+        video_frame = tk.Frame(container, bg="#FFFFFF", padx=12, pady=12, highlightthickness=1, highlightbackground="#E2E8F0")
+        video_frame.pack(fill="x", pady=(6, 10))
 
         if video_urls:
             for idx, url in enumerate(video_urls, start=1):
-                ttk.Label(video_frame, text=f"Video {idx}").grid(row=idx - 1, column=0, sticky="w", pady=(0, 4))
-                ttk.Button(
+                tk.Label(video_frame, text=f"Video {idx}", bg="#FFFFFF", fg="#0F172A").grid(
+                    row=idx - 1, column=0, sticky="w", pady=(0, 4)
+                )
+                btn = ttk.Button(
                     video_frame,
                     text="Tải về",
                     style="Primary.TButton",
                     command=lambda u=url, idx=idx: self._download_video_from_url(u, title, idx),
-                ).grid(row=idx - 1, column=1, sticky="e", padx=(16, 0), pady=(0, 4))
+                )
+                btn.grid(row=idx - 1, column=1, sticky="e", padx=(16, 0), pady=(0, 4))
+                if not url:
+                    btn.state(["disabled"])
+                    tk.Label(video_frame, text="File chưa được up lên hệ thống", bg="#FFFFFF", fg="#64748B").grid(
+                        row=idx - 1, column=2, sticky="w", padx=(12, 0)
+                    )
         else:
-            ttk.Label(video_frame, text="Không có video").grid(row=0, column=0, sticky="w")
+            tk.Label(video_frame, text="Video", bg="#FFFFFF", fg="#0F172A").grid(
+                row=0, column=0, sticky="w", pady=(0, 4)
+            )
+            btn = ttk.Button(video_frame, text="Tải về", style="Primary.TButton")
+            btn.state(["disabled"])
+            btn.grid(row=0, column=1, sticky="e", padx=(16, 0), pady=(0, 4))
+            tk.Label(video_frame, text="File chưa được up lên hệ thống", bg="#FFFFFF", fg="#64748B").grid(
+                row=0, column=2, sticky="w", padx=(12, 0)
+            )
 
         # --- Documents section ---
-        doc_frame = ttk.LabelFrame(container, text="File tài liệu", padding=12)
-        doc_frame.pack(expand=True, fill="both")
+        tk.Label(container, text="File tài liệu", bg=popup_bg, fg="#0F172A", font=("SF Pro Text", 12, "bold")).pack(
+            anchor="w"
+        )
+        doc_frame = tk.Frame(container, bg="#FFFFFF", padx=12, pady=12, highlightthickness=1, highlightbackground="#E2E8F0")
+        doc_frame.pack(expand=True, fill="both", pady=(6, 0))
 
         row = 0
-        if doc_url:
-            ttk.Label(doc_frame, text="Đề bài").grid(row=row, column=0, sticky="w", pady=(0, 4))
-            ttk.Button(doc_frame, text="Mở", style="Primary.TButton",
-                    command=lambda: self._open_in_chrome(doc_url)).grid(row=row, column=1, sticky="e", padx=(16, 0), pady=(0, 4))
-            row += 1
-        if doc_answer_url:
-            ttk.Label(doc_frame, text="Đáp án").grid(row=row, column=0, sticky="w", pady=(0, 4))
-            ttk.Button(doc_frame, text="Mở", style="Primary.TButton",
-                    command=lambda: self._open_in_chrome(doc_answer_url)).grid(row=row, column=1, sticky="e", padx=(16, 0), pady=(0, 4))
-            row += 1
-        if row == 0:
-            ttk.Label(doc_frame, text="Không có tài liệu").grid(row=0, column=0, sticky="w")
+        tk.Label(doc_frame, text="Đề bài", bg="#FFFFFF", fg="#0F172A").grid(
+            row=row, column=0, sticky="w", pady=(0, 4)
+        )
+        doc_btn = ttk.Button(doc_frame, text="Mở", style="Primary.TButton",
+                command=lambda: self._open_in_chrome(doc_url))
+        doc_btn.grid(row=row, column=1, sticky="e", padx=(16, 0), pady=(0, 4))
+        if not doc_url:
+            doc_btn.state(["disabled"])
+            tk.Label(doc_frame, text="File chưa được up lên hệ thống", bg="#FFFFFF", fg="#64748B").grid(
+                row=row, column=2, sticky="w", padx=(12, 0)
+            )
+        row += 1
+        tk.Label(doc_frame, text="Đáp án", bg="#FFFFFF", fg="#0F172A").grid(
+            row=row, column=0, sticky="w", pady=(0, 4)
+        )
+        ans_btn = ttk.Button(doc_frame, text="Mở", style="Primary.TButton",
+                command=lambda: self._open_in_chrome(doc_answer_url))
+        ans_btn.grid(row=row, column=1, sticky="e", padx=(16, 0), pady=(0, 4))
+        if not doc_answer_url:
+            ans_btn.state(["disabled"])
+            tk.Label(doc_frame, text="File chưa được up lên hệ thống", bg="#FFFFFF", fg="#64748B").grid(
+                row=row, column=2, sticky="w", padx=(12, 0)
+            )
 
         def _on_popup_close():
             win.destroy()
         win.protocol("WM_DELETE_WINDOW", _on_popup_close)
 
         # --- Buttons (Đóng) ---
-        btns = ttk.Frame(container)
+        btns = tk.Frame(container, bg=popup_bg)
         btns.pack(fill="x", pady=(8, 0))
         ttk.Button(btns, text="Đóng", command=_on_popup_close).pack(side="right")
 
@@ -485,7 +531,7 @@ class FlashStudyDownloaderApp:
         out_name = f"{self._sanitize_filename(lesson_title)}_{index}"
         out_final = os.path.join(folder, out_name + ".mp4")
 
-        ok, err = self.download_video_by_ffmpeg(fixed_url, out_final)
+        ok, err = self.download_video_by_ytdlp(fixed_url, out_final)
         if not ok:
             messagebox.showerror("Lỗi", err or "Không thể tải video.")
             return
@@ -608,6 +654,11 @@ class FlashStudyDownloaderApp:
             "Primary.TButton",
             background=[("active", PRIMARY_DARK), ("pressed", PRIMARY_DARK)],
             relief=[("pressed", "sunken")],
+            foreground=[("disabled", "#64748B")],
+        )
+        style.map(
+            "Primary.TButton",
+            background=[("disabled", "#E2E8F0")],
         )
 
         style.configure("Secondary.TButton",
@@ -821,6 +872,51 @@ class FlashStudyDownloaderApp:
             "-bsf:a",
             "aac_adtstoasc",
             output_path,
+        ]
+        try:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
+    def download_video_by_ytdlp(self, url: str, output_path: str):
+        auth_token = (self.configuration or {}).get("video_key_token") or ""
+        if not auth_token:
+            return False, "Thiếu video_key_token trong app_resource/.conf.json."
+        is_win = sys.platform.startswith("win")
+        bin_name = "ffmpeg.exe" if is_win else "ffmpeg"
+        base = app_root_dir()
+        candidates = [
+            os.path.join(base, "ffmpeg", "win", bin_name),
+            os.path.join(base, "ffmpeg", "mac", "ffmpeg"),
+            os.path.join(base, "ffmpeg", bin_name),
+        ]
+        ffmpeg_bin = next((p for p in candidates if os.path.isfile(p)), None)
+        if not ffmpeg_bin:
+            return False, "Không tìm thấy ffmpeg trong thư mục ffmpeg."
+        if not is_win:
+            try:
+                os.chmod(ffmpeg_bin, os.stat(ffmpeg_bin).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            except Exception:
+                pass
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "yt_dlp",
+            "--add-header",
+            "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "--add-header",
+            "Referer:https://example.com",
+            "--add-header",
+            f"Authorization: Bearer {auth_token}",
+            "--ffmpeg-location",
+            ffmpeg_bin,
+            "-f",
+            "best",
+            "-o",
+            output_path,
+            url,
         ]
         try:
             subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
