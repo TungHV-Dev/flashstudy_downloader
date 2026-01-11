@@ -2,169 +2,146 @@ import base64
 import requests
 import json
 
-class QandaAPI:
-    def __init__(self, vender_id):
-        self.vender_id = vender_id
+class FlashStudyAPI:
+    def __init__(self):
+        self.token = ""
 
-    # Email: thanhthuong060606@gmail.com | Password: 123456
-    def login(self, email: str, password: str):
-        url = f"https://q2ab84c4bh.execute-api.ap-southeast-1.amazonaws.com/prod/student/signin?vendorId={self.vender_id}"
-
-        password_base64 = base64.b64encode(password.encode()).decode()
-        payload = {
-            "email": email,
-            "password": password_base64,
-            "vendorId": self.vender_id
-        }
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/plain, */*",
-            "Origin": "https://www.qandastudy.com",
-            "Referer": "https://www.qandastudy.com/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
-        }
-
-        response = requests.post(url, json=payload, headers=headers)
-
-        if response.status_code == 200:
-            response_data = response.json()
-            access_token = response_data.get("accessToken", None)
-            student_id = response_data.get("studentId", None)
-            user_id = response_data.get("id", None)
-
-            data = {
-                "access_token": access_token,
-                "student_id": student_id,
-                "user_id": user_id
+    def login(self, phone: str, password: str):
+        url = "https://api.flashstudy.vn/api/v1/client/auth/login"
+        payload = {"phone": phone, "password": password}
+        headers = {"Content-Type": "application/json"}
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=20)
+            resp.raise_for_status()
+            data = resp.json()
+            status = (data or {}).get("status") or {}
+            if status.get("code") == 200:
+                token = ((data or {}).get("data") or {}).get("access_token")
+                if token:
+                    self.token = token
+                    return 0, token
+                return -1, {
+                    "status_code": status.get("code", resp.status_code),
+                    "message": "Missing access_token in response",
+                }
+            return -1, {
+                "status_code": status.get("code", resp.status_code),
+                "message": status.get("message", "Login failed"),
             }
-            return 0, data
-        else:
-            response_text = json.loads(response.text)
-            data = {
-                "status_code": response.status_code,
-                "message": response_text.get("data", None) if response_text.get("data", None) else response.text
-            }
-            return -1, data
-
-    def get_user_courses(self, user_id: str, access_token: str):
-        url = f"https://87rvhd1ada.execute-api.ap-southeast-1.amazonaws.com/prod/user-permission?userId={user_id}&vendorId={self.vender_id}"
-
-        headers = {
-            "Authorization": f"{access_token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/plain, */*",
-            "Origin": "https://www.qandastudy.com",
-            "Referer": "https://www.qandastudy.com/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
-        }
-
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            response_data = response.json()
-            online_courses = response_data.get("onlineCourses", [])
-            response_courses = []
-            for course in online_courses:
-                response_courses.append({
-                    "course_id": course.get("id", None),
-                    "course_title": course.get("title", None)   
-                })
-            data = {
-                "courses": response_courses
-            }
-            return 0, data
-        else:
-            response_text = json.loads(response.text)
-            data = {
-                "status_code": response.status_code,
-                "message": response_text.get("data", None) if response_text.get("data", None) else response.text
-            }
-            return -1, data
-
-    def get_course_layout(self, course_id: str, access_token: str):
-        url = f"https://ww1ugkewmi.execute-api.ap-southeast-1.amazonaws.com/prod/course/layout/{course_id}?&vendorId={self.vender_id}"
-
-        headers = {
-            "Authorization": f"{access_token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/plain, */*",
-            "Origin": "https://www.qandastudy.com",
-            "Referer": "https://www.qandastudy.com/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
-        }
-
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            response_data = list(response.json() or [])
-
-            chapters = []
-            for item in response_data:
-                lessons = []
-                chapter_lessons = item.get("children", [])
-                for les in chapter_lessons:
-                    lessons.append({
-                        "lesson_id": les.get("id", None),
-                        "lesson_index": les.get("index", None),
-                        "lesson_title": les.get("title", None),
-                        "has_attachment": bool(les.get("data", {}).get("hasAttachment", False))
-                    })
-                chapters.append({
-                    "chapter_id": item.get("id", None),
-                    "chapter_index": item.get("index", None),
-                    "chapter_title": item.get("title", None),
-                    "chapter_lessons": lessons
-                })
-            data = {
-                "chapters": chapters
-            }
-            return 0, data
-        else:
-            response_text = json.loads(response.text)
-            data = {
-                "status_code": response.status_code,
-                "message": response_text.get("data", None) if response_text.get("data", None) else response.text
-            }
-            return -1, data
+        except requests.RequestException as e:
+            return -1, {"status_code": -1, "message": str(e)}
+        except json.JSONDecodeError:
+            return -1, {"status_code": -1, "message": "Invalid JSON response"}
         
-    def get_lesson_details(self, lesson_id: str, user_id: str, access_token: str):
-        url = f"https://ww1ugkewmi.execute-api.ap-southeast-1.amazonaws.com/prod/unit/{lesson_id}?userId={user_id}&_populate=video&vendorId={self.vender_id}"
-
-        headers = {
-            "Authorization": f"{access_token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/plain, */*",
-            "Origin": "https://www.qandastudy.com",
-            "Referer": "https://www.qandastudy.com/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
-        }
-
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            response_data = response.json()
-            video_data = response_data.get("video", {})
-            syllabus_data = list(response_data.get("syllabus", []))
-
-            data = {
-                "title": response_data.get("title", ""),
-                "video": {
-                    "video_id": video_data.get("id", ""),
-                    "link": video_data.get("link", ""),
-                    "title": video_data.get("title", ""),
-                    "duration": video_data.get("duration", 0),
-                    "size": video_data.get("size", 0)
-                },
-                "syllabus": [{
-                    "id": item.get("id", ""),
-                    "title": item.get("title", ""),
-                    "link": f'{item.get("origin", {}).get("bucket", "")}/{item.get("origin", {}).get("link", "")}' if item.get("origin", {}) else "",
-                    "mimeType": item.get("origin", {}).get("mimeType", "") if item.get("origin", {}) else ""
-                } for item in syllabus_data]
+    def get_my_courses(self):
+        url = "https://api.flashstudy.vn/api/v1/client/my-course"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        try:
+            resp = requests.get(url, headers=headers, timeout=20)
+            resp.raise_for_status()
+            data = resp.json()
+            status = (data or {}).get("status") or {}
+            if status.get("code") == 200:
+                courses = ((data or {}).get("data") or {}).get("courses", []) or []
+                results = []
+                for course in courses:
+                    teachers = course.get("teachers") or []
+                    teacher_name = ""
+                    if teachers and isinstance(teachers, list):
+                        teacher_name = teachers[0].get("name") or ""
+                    results.append(
+                        {
+                            "course_id": course.get("id"),
+                            "course_name": course.get("name") or "",
+                            "teacher_name": teacher_name,
+                            "expired_time": course.get("expired_time") or "",
+                        }
+                    )
+                return 0, results
+            return -1, {
+                "status_code": status.get("code", resp.status_code),
+                "message": status.get("message", "Fetch courses failed"),
             }
-            return 0, data
-        else:
-            response_text = json.loads(response.text)
-            data = {
-                "status_code": response.status_code,
-                "message": response_text.get("data", None) if response_text.get("data", None) else response.text
+        except requests.RequestException as e:
+            return -1, {"status_code": -1, "message": str(e)}
+        except json.JSONDecodeError:
+            return -1, {"status_code": -1, "message": "Invalid JSON response"}
+
+    def get_course_detail(self, course_id: int):
+        url = f"https://api.flashstudy.vn/api/v1/client/my-course/detail-lesson-in-course/{course_id}"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        try:
+            resp = requests.get(url, headers=headers, timeout=20)
+            resp.raise_for_status()
+            data = resp.json()
+            status = (data or {}).get("status") or {}
+            if status.get("code") == 200:
+                lessons = ((data or {}).get("data") or {}).get("lessons", []) or []
+                results = []
+                for lesson in lessons:
+                    children = lesson.get("children") or []
+                    child_items = []
+                    if isinstance(children, list):
+                        for child in children:
+                            child_items.append(
+                                {
+                                    "lesson_id": child.get("id"),
+                                    "lesson_name": child.get("name") or "",
+                                    "type": child.get("type"),
+                                }
+                            )
+                    results.append(
+                        {
+                            "lesson_id": lesson.get("id"),
+                            "lesson_name": lesson.get("name") or "",
+                            "type": lesson.get("type"),
+                            "children": child_items,
+                        }
+                    )
+                return 0, results
+            return -1, {
+                "status_code": status.get("code", resp.status_code),
+                "message": status.get("message", "Fetch course detail failed"),
             }
-            return -1, data
-    
+        except requests.RequestException as e:
+            return -1, {"status_code": -1, "message": str(e)}
+        except json.JSONDecodeError:
+            return -1, {"status_code": -1, "message": "Invalid JSON response"}
+
+    def get_lesson_detail(self, lesson_id: int):
+        url = f"https://api.flashstudy.vn/api/v1/client/my-course/lesson/{lesson_id}"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        try:
+            resp = requests.get(url, headers=headers, timeout=20)
+            resp.raise_for_status()
+            data = resp.json()
+            status = (data or {}).get("status") or {}
+            if status.get("code") == 200:
+                lesson = ((data or {}).get("data") or {}).get("lesson") or {}
+                lesson_type = lesson.get("type")
+                if lesson_type == 5:
+                    return 0, {
+                        "lesson_id": lesson.get("id"),
+                        "lesson_name": lesson.get("name") or "",
+                        "pdf_url": lesson.get("pdf_url") or "",
+                    }
+                video_urls = []
+                for v in lesson.get("video_url") or []:
+                    if v.get("type") == "vn" and v.get("url"):
+                        video_urls.append(v.get("url"))
+                result = {
+                    "lesson_id": lesson.get("id"),
+                    "lesson_name": lesson.get("name") or "",
+                    "video_url": video_urls,
+                    "document_url": lesson.get("document_url") or "",
+                    "document_answer_url": lesson.get("document_answer_url") or "",
+                }
+                return 0, result
+            return -1, {
+                "status_code": status.get("code", resp.status_code),
+                "message": status.get("message", "Fetch lesson detail failed"),
+            }
+        except requests.RequestException as e:
+            return -1, {"status_code": -1, "message": str(e)}
+        except json.JSONDecodeError:
+            return -1, {"status_code": -1, "message": "Invalid JSON response"}
