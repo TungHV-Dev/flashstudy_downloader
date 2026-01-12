@@ -903,11 +903,40 @@ class FlashStudyDownloaderApp:
         try:
             import yt_dlp
 
-            append_download_log(os.path.join(RESOURCE_DIR, ".log"), "START", url, output_path, "")
-            opts = {
-                "format": "best",
+            def _cleanup_temp_files():
+                try:
+                    base = output_path
+                    dir_name = os.path.dirname(base) or "."
+                    stem = os.path.basename(base)
+                    for p in (base + ".part", base + ".ytdl", base + ".aria2"):
+                        if os.path.exists(p):
+                            os.remove(p)
+                    for name in os.listdir(dir_name):
+                        if name.startswith(stem + ".part"):
+                            try:
+                                os.remove(os.path.join(dir_name, name))
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+            log_path = os.path.join(RESOURCE_DIR, ".log")
+            append_download_log(log_path, "START", url, output_path, "")
+            def _download_with_opts(opts: dict) -> str:
+                try:
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        ydl.download([url])
+                    return ""
+                except Exception as e:
+                    return str(e)
+
+            cpu_cnt = os.cpu_count() or 4
+            concurrent_frags = max(2, min(6, cpu_cnt))
+            base_opts = {
+                "format": "best[ext=mp4]/best",
                 "outtmpl": output_path,
                 "ffmpeg_location": ffmpeg_bin,
+                "concurrent_fragment_downloads": concurrent_frags,
                 "http_headers": {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
                     "Referer": "https://example.com",
@@ -916,10 +945,19 @@ class FlashStudyDownloaderApp:
                 "quiet": True,
                 "no_warnings": True,
                 "merge_output_format": "mp4",
+                "retries": 5,
+                "fragment_retries": 5,
+                "socket_timeout": 30,
             }
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.download([url])
-            append_download_log(os.path.join(RESOURCE_DIR, ".log"), "SUCCESS", url, output_path, "")
+
+            err = ""
+            _cleanup_temp_files()
+            err = _download_with_opts(base_opts)
+            if err:
+                append_download_log(log_path, "FAIL", url, output_path, err)
+                raise RuntimeError(err)
+
+            append_download_log(log_path, "SUCCESS", url, output_path, "")
             return 0
         except Exception as e:
             append_download_log(os.path.join(RESOURCE_DIR, ".log"), "FAIL", url, output_path, str(e))
