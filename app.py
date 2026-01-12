@@ -840,22 +840,10 @@ class FlashStudyDownloaderApp:
         auth_token = (self.configuration or {}).get("video_key_token") or ""
         if not auth_token:
             return False, "Thiếu video_key_token trong app_resource/.conf.json."
-        is_win = sys.platform.startswith("win")
-        bin_name = "ffmpeg.exe" if is_win else "ffmpeg"
-        base = app_root_dir()
-        candidates = [
-            os.path.join(base, "ffmpeg", "win", bin_name),
-            os.path.join(base, "ffmpeg", "mac", "ffmpeg"),
-            os.path.join(base, "ffmpeg", bin_name),
-        ]
-        ffmpeg_bin = next((p for p in candidates if os.path.isfile(p)), None)
-        if not ffmpeg_bin:
-            return False, "Không tìm thấy ffmpeg trong thư mục ffmpeg."
-        if not is_win:
-            try:
-                os.chmod(ffmpeg_bin, os.stat(ffmpeg_bin).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-            except Exception:
-                pass
+        try:
+            ffmpeg_bin = self._ensure_ffmpeg()
+        except Exception:
+            return False, "Không tìm thấy ffmpeg."
 
         cmd = [
             sys.executable,
