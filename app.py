@@ -10,7 +10,7 @@ import stat
 from tkinter import filedialog as fd
 from tkinter import messagebox, ttk
 from core.api import FlashStudyAPI
-from core.utils import load_config
+from core.utils import load_config, append_download_log
 
 def app_root_dir() -> str:
     """
@@ -532,7 +532,7 @@ class FlashStudyDownloaderApp:
         if not ok:
             messagebox.showerror("Lỗi", err or "Không thể tải video.")
             return
-        messagebox.showinfo("Đang tải", "Quá trình tải đang diễn ra, vui lòng kiểm tra lại sau.")
+        messagebox.showinfo("Thông báo", "Video đang được tải, vui lòng kiểm tra lại sau.")
 
     def _open_exam_link(self, lesson_id: str):
         code, data = self._fetch_lesson_details(lesson_id)
@@ -857,35 +857,74 @@ class FlashStudyDownloaderApp:
             except Exception:
                 pass
 
-        python_bin = sys.executable
-        if getattr(sys, "frozen", False):
-            python_bin = shutil.which("python3") or shutil.which("python")
-            if not python_bin:
-                return False, "Không tìm thấy python3 để chạy yt_dlp."
-
         cmd = [
-            python_bin,
-            "-m",
-            "yt_dlp",
-            "--add-header",
-            "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-            "--add-header",
-            "Referer:https://example.com",
-            "--add-header",
-            f"Authorization: Bearer {auth_token}",
-            "--ffmpeg-location",
-            ffmpeg_bin,
-            "-f",
-            "best",
-            "-o",
-            output_path,
+            sys.executable,
+            "--download-worker",
+            "--url",
             url,
+            "--output",
+            output_path,
+            "--ffmpeg",
+            ffmpeg_bin,
+            "--token",
+            auth_token,
         ]
+        if not getattr(sys, "frozen", False):
+            cmd = [
+                sys.executable,
+                os.path.abspath(__file__),
+                "--download-worker",
+                "--url",
+                url,
+                "--output",
+                output_path,
+                "--ffmpeg",
+                ffmpeg_bin,
+                "--token",
+                auth_token,
+            ]
+
         try:
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if sys.platform.startswith("win"):
+                subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                )
+            else:
+                subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return True, None
         except Exception as e:
             return False, str(e)
+
+    @staticmethod
+    def _run_download_worker(url: str, output_path: str, ffmpeg_bin: str, auth_token: str) -> int:
+        try:
+            import yt_dlp
+
+            append_download_log(os.path.join(RESOURCE_DIR, ".log"), "START", url, output_path, "")
+            opts = {
+                "format": "best",
+                "outtmpl": output_path,
+                "ffmpeg_location": ffmpeg_bin,
+                "http_headers": {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                    "Referer": "https://example.com",
+                    "Authorization": f"Bearer {auth_token}",
+                },
+                "quiet": True,
+                "no_warnings": True,
+                "merge_output_format": "mp4",
+            }
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([url])
+            append_download_log(os.path.join(RESOURCE_DIR, ".log"), "SUCCESS", url, output_path, "")
+            return 0
+        except Exception as e:
+            append_download_log(os.path.join(RESOURCE_DIR, ".log"), "FAIL", url, output_path, str(e))
+            print("yt_dlp error:", e)
+            return 1
 
     def _select_download_dir(self) -> str:
         """Hỏi thư mục lưu, nhớ lại lựa chọn gần nhất trong self.temp."""
@@ -904,6 +943,26 @@ class FlashStudyDownloaderApp:
         return name or default
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = FlashStudyDownloaderApp(root)
-    root.mainloop()
+    if "--download-worker" in sys.argv:
+        try:
+            idx = sys.argv.index("--download-worker")
+            args = sys.argv[idx + 1 :]
+            def _get_arg(name: str) -> str:
+                if name in args:
+                    i = args.index(name)
+                    if i + 1 < len(args):
+                        return args[i + 1]
+                return ""
+
+            url = _get_arg("--url")
+            output_path = _get_arg("--output")
+            ffmpeg_bin = _get_arg("--ffmpeg")
+            auth_token = _get_arg("--token")
+            code = FlashStudyDownloaderApp._run_download_worker(url, output_path, ffmpeg_bin, auth_token)
+            raise SystemExit(code)
+        except Exception:
+            raise SystemExit(1)
+    else:
+        root = tk.Tk()
+        app = FlashStudyDownloaderApp(root)
+        root.mainloop()
