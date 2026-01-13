@@ -804,11 +804,23 @@ class FlashStudyDownloaderApp:
         def _ok(p: str | None) -> str | None:
             return p if p and os.path.isfile(p) else None
 
+        def _pick_from(base_dir: str) -> str | None:
+            candidates = [
+                os.path.join(base_dir, "ffmpeg", bin_name),
+                os.path.join(base_dir, "ffmpeg", "win", bin_name),
+                os.path.join(base_dir, "ffmpeg", "mac", "ffmpeg"),
+                os.path.join(base_dir, "vendor", "win" if is_win else "mac", bin_name),
+            ]
+            for cand in candidates:
+                hit = _ok(cand)
+                if hit:
+                    return hit
+            return None
+
         # 1) PyInstaller --onefile: sys._MEIPASS
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass:
-            cand = _ok(os.path.join(meipass, "ffmpeg", bin_name)) \
-                or _ok(os.path.join(meipass, "ffmpeg", "mac", "ffmpeg"))  # chấp nhận layout cũ
+            cand = _pick_from(meipass)
             if cand:
                 try:
                     os.chmod(cand, os.stat(cand).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -820,9 +832,7 @@ class FlashStudyDownloaderApp:
         base = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) \
             else os.path.dirname(os.path.abspath(__file__))
 
-        cand = _ok(os.path.join(base, "ffmpeg", bin_name)) \
-            or _ok(os.path.join(base, "ffmpeg", "mac", "ffmpeg")) \
-            or _ok(os.path.join(base, "vendor", "mac" if not is_win else "win", bin_name))
+        cand = _pick_from(base)
         if cand:
             try:
                 os.chmod(cand, os.stat(cand).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
