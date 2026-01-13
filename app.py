@@ -1,5 +1,6 @@
 import os
 import json
+import tempfile
 import tkinter as tk
 import time
 import sys 
@@ -874,11 +875,14 @@ class FlashStudyDownloaderApp:
 
         try:
             if sys.platform.startswith("win"):
+                creation_flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                if hasattr(subprocess, "CREATE_NO_WINDOW"):
+                    creation_flags |= subprocess.CREATE_NO_WINDOW
                 subprocess.Popen(
                     cmd,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                    creationflags=creation_flags,
                 )
             else:
                 subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -918,24 +922,43 @@ class FlashStudyDownloaderApp:
                 except Exception as e:
                     return str(e)
 
+            temp_dir = os.path.join(tempfile.gettempdir(), "flashstudy_ytdlp_tmp")
+            os.makedirs(temp_dir, exist_ok=True)
+
             cpu_cnt = os.cpu_count() or 4
             concurrent_frags = max(2, min(6, cpu_cnt))
+
             base_opts = {
-                "format": "best[ext=mp4]/best",
+                "format": "best",
                 "outtmpl": output_path,
+                "merge_output_format": "mp4",
                 "ffmpeg_location": ffmpeg_bin,
                 "concurrent_fragment_downloads": concurrent_frags,
+                "external_downloader": "ffmpeg",
+                "external_downloader_args": {
+                    "ffmpeg": [
+                        "-loglevel", "error",
+                        "-stats",
+                        "-threads", "0"
+                    ]
+                },
                 "http_headers": {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                    "Referer": "https://example.com",
+                    "User-Agent": "Mozilla/5.0",
+                    "Referer": "https://ttvmax.com/",
                     "Authorization": f"Bearer {auth_token}",
                 },
-                "quiet": True,
-                "no_warnings": True,
-                "merge_output_format": "mp4",
+                "keep_fragments": False,
                 "retries": 5,
                 "fragment_retries": 5,
                 "socket_timeout": 30,
+                "paths": {
+                    "temp": temp_dir  # nên là SSD
+                },
+                "postprocessor_args": [
+                    "-movflags", "+faststart"
+                ],
+                "quiet": True,
+                "no_warnings": True,
             }
 
             err = ""
