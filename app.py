@@ -9,9 +9,9 @@ import re
 import shutil
 import stat
 from tkinter import filedialog as fd
-from tkinter import messagebox, ttk
-from core.api import FlashStudyAPI
-from core.utils import load_config, append_download_log
+from tkinter import messagebox, ttk, simpledialog
+from core.api import FlashStudyAPI, verify_license
+from core.utils import load_config, append_download_log, save_config, ensure_resource_dir, get_device_info
 
 def app_root_dir() -> str:
     """
@@ -35,6 +35,7 @@ RESOURCE_DIR = os.path.join(app_root_dir(), "app_resource")
 CONFIG_FILE_PATH = os.path.join(RESOURCE_DIR, ".conf.json")
 TEMP_FILE_PATH = os.path.join(RESOURCE_DIR, ".temp.data")
 
+
 class FlashStudyDownloaderApp:
     def __init__(self, root):
         self.root = root
@@ -46,8 +47,10 @@ class FlashStudyDownloaderApp:
         self._init_style()
 
         # Load config + temp store
+        ensure_resource_dir(RESOURCE_DIR)
         self.configuration = load_config(CONFIG_FILE_PATH)
         self.temp = self._load_temp_store()
+        self.device_info = self._ensure_device_info()
 
         # API client
         self.AppApi = FlashStudyAPI()
@@ -58,6 +61,10 @@ class FlashStudyDownloaderApp:
         # status bar
         self.status_var = tk.StringVar(value="Sẵn sàng")
         self._build_statusbar()
+
+        if not self._verify_license_on_startup():
+            self.root.destroy()
+            return
 
         if self._auto_resume_session():
             # Có phiên còn hạn -> bỏ qua login
@@ -83,7 +90,7 @@ class FlashStudyDownloaderApp:
         container.grid_rowconfigure(0, weight=1)
 
         # title
-        title = ttk.Label(wrapper, text="Đăng nhập", style="Title.TLabel")
+        title = ttk.Label(wrapper, text="Đăng nhập FlashStudy", style="Title.TLabel")
         title.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 16))
 
         # SĐT
@@ -788,6 +795,66 @@ class FlashStudyDownloaderApp:
         except Exception as e:
             print("Auto-resume error:", e)
             return False
+
+    def _ensure_device_info(self):
+        info = get_device_info()
+        updated = False
+        if not self.configuration.get("device_id"):
+            self.configuration["device_id"] = info.get("device_id")
+            updated = True
+        if not self.configuration.get("device_name"):
+            self.configuration["device_name"] = info.get("device_name")
+            updated = True
+        if not self.configuration.get("os"):
+            self.configuration["os"] = info.get("os")
+            updated = True
+        if updated:
+            save_config(CONFIG_FILE_PATH, self.configuration)
+        return {
+            "device_id": self.configuration.get("device_id"),
+            "device_name": self.configuration.get("device_name"),
+            "os": self.configuration.get("os"),
+        }
+
+    def _verify_license_on_startup(self):
+        while True:
+            license_key = (self.configuration or {}).get("license_key")
+            if not license_key:
+                new_key = simpledialog.askstring(
+                    "License yêu cầu",
+                    "Nhập license key để tiếp tục:",
+                    parent=self.root,
+                )
+                if not new_key:
+                    messagebox.showerror("Thiếu license", "Thiếu license key. App sẽ đóng.")
+                    return False
+                if not re.fullmatch(
+                    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+                    new_key.strip(),
+                ):
+                    messagebox.showerror("Cảnh báo", "License key không đúng định dạng.")
+                    continue
+                self.configuration["license_key"] = new_key.strip()
+                save_config(CONFIG_FILE_PATH, self.configuration)
+                license_key = self.configuration["license_key"]
+            else:
+                if not re.fullmatch(
+                    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+                    license_key.strip(),
+                ):
+                    messagebox.showerror("Cảnh báo", "License key không đúng định dạng.")
+                    self.configuration["license_key"] = ""
+                    save_config(CONFIG_FILE_PATH, self.configuration)
+                    continue
+
+            ok, data_or_err = verify_license(self.configuration, self.device_info)
+            if ok:
+                self._set_status("License hợp lệ.")
+                return True
+
+            messagebox.showerror("License không hợp lệ", data_or_err or "Vui lòng nhập license khác.")
+            self.configuration["license_key"] = ""
+            save_config(CONFIG_FILE_PATH, self.configuration)
     
     def _ensure_ffmpeg(self) -> str:
         """
@@ -922,8 +989,7 @@ class FlashStudyDownloaderApp:
                 except Exception:
                     pass
 
-            log_path = os.path.join(RESOURCE_DIR, ".log")
-            append_download_log(log_path, "START", url, output_path, "")
+            append_download_log("START", url, output_path, "")
             def _download_with_opts(opts: dict) -> str:
                 try:
                     with yt_dlp.YoutubeDL(opts) as ydl:
@@ -932,11 +998,13 @@ class FlashStudyDownloaderApp:
                 except Exception as e:
                     return str(e)
 
-            temp_dir = os.path.join(tempfile.gettempdir(), "flashstudy_ytdlp_tmp")
+            output_dir = os.path.dirname(output_path) or "."
+            temp_dir = os.path.join(output_dir, ".ytdlp_tmp")
             os.makedirs(temp_dir, exist_ok=True)
 
             cpu_cnt = os.cpu_count() or 4
-            concurrent_frags = max(2, min(6, cpu_cnt))
+            is_win = sys.platform.startswith("win")
+            concurrent_frags = 1 if is_win else max(2, min(6, cpu_cnt))
 
             base_opts = {
                 "format": "best",
@@ -944,25 +1012,17 @@ class FlashStudyDownloaderApp:
                 "merge_output_format": "mp4",
                 "ffmpeg_location": ffmpeg_bin,
                 "concurrent_fragment_downloads": concurrent_frags,
-                "external_downloader": "ffmpeg",
-                "external_downloader_args": {
-                    "ffmpeg": [
-                        "-loglevel", "error",
-                        "-stats",
-                        "-threads", "0"
-                    ]
-                },
                 "http_headers": {
                     "User-Agent": "Mozilla/5.0",
                     "Referer": "https://ttvmax.com/",
                     "Authorization": f"Bearer {auth_token}",
                 },
                 "keep_fragments": False,
-                "retries": 5,
-                "fragment_retries": 5,
+                "retries": 10 if is_win else 5,
+                "fragment_retries": 10 if is_win else 5,
                 "socket_timeout": 30,
                 "paths": {
-                    "temp": temp_dir  # nên là SSD
+                    "temp": temp_dir
                 },
                 "postprocessor_args": [
                     "-movflags", "+faststart"
@@ -970,18 +1030,29 @@ class FlashStudyDownloaderApp:
                 "quiet": True,
                 "no_warnings": True,
             }
+            if is_win:
+                base_opts["hls_use_mpegts"] = True
+            else:
+                base_opts["external_downloader"] = "ffmpeg"
+                base_opts["external_downloader_args"] = {
+                    "ffmpeg": [
+                        "-loglevel", "error",
+                        "-stats",
+                        "-threads", "0"
+                    ]
+                }
 
             err = ""
             _cleanup_temp_files()
             err = _download_with_opts(base_opts)
             if err:
-                append_download_log(log_path, "FAIL", url, output_path, err)
+                append_download_log("FAIL", url, output_path, err)
                 raise RuntimeError(err)
 
-            append_download_log(log_path, "SUCCESS", url, output_path, "")
+            append_download_log("SUCCESS", url, output_path, "")
             return 0
         except Exception as e:
-            append_download_log(os.path.join(RESOURCE_DIR, ".log"), "FAIL", url, output_path, str(e))
+            append_download_log("FAIL", url, output_path, str(e))
             print("yt_dlp error:", e)
             return 1
 
