@@ -986,6 +986,13 @@ class FlashStudyDownloaderApp:
                                 os.remove(os.path.join(dir_name, name))
                             except Exception:
                                 pass
+                    if os.path.isdir(temp_dir):
+                        for name in os.listdir(temp_dir):
+                            if name.startswith(stem + ".part") or name.startswith(stem + ".f"):
+                                try:
+                                    os.remove(os.path.join(temp_dir, name))
+                                except Exception:
+                                    pass
                 except Exception:
                     pass
 
@@ -1009,9 +1016,10 @@ class FlashStudyDownloaderApp:
             else:
                 concurrent_frags = max(2, min(6, cpu_cnt))
 
+            output_name = os.path.basename(output_path)
             base_opts = {
                 "format": "best",
-                "outtmpl": output_path,
+                "outtmpl": output_name,
                 "merge_output_format": "mp4",
                 "ffmpeg_location": ffmpeg_bin,
                 "concurrent_fragment_downloads": concurrent_frags,
@@ -1025,6 +1033,7 @@ class FlashStudyDownloaderApp:
                 "fragment_retries": 10 if is_win else 5,
                 "socket_timeout": 30,
                 "paths": {
+                    "home": output_dir,
                     "temp": temp_dir
                 },
                 "postprocessor_args": [
@@ -1063,6 +1072,7 @@ class FlashStudyDownloaderApp:
                 append_download_log("FAIL", url, output_path, err)
                 raise RuntimeError(err)
 
+            _cleanup_temp_files()
             append_download_log("SUCCESS", url, output_path, "")
             return 0
         except Exception as e:
