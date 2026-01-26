@@ -1016,10 +1016,9 @@ class FlashStudyDownloaderApp:
             else:
                 concurrent_frags = max(2, min(6, cpu_cnt))
 
-            output_name = os.path.basename(output_path)
             base_opts = {
                 "format": "best",
-                "outtmpl": output_name,
+                "outtmpl": output_path,
                 "merge_output_format": "mp4",
                 "ffmpeg_location": ffmpeg_bin,
                 "concurrent_fragment_downloads": concurrent_frags,
@@ -1033,7 +1032,6 @@ class FlashStudyDownloaderApp:
                 "fragment_retries": 10 if is_win else 5,
                 "socket_timeout": 30,
                 "paths": {
-                    "home": output_dir,
                     "temp": temp_dir
                 },
                 "postprocessor_args": [
