@@ -1004,7 +1004,10 @@ class FlashStudyDownloaderApp:
 
             cpu_cnt = os.cpu_count() or 4
             is_win = sys.platform.startswith("win")
-            concurrent_frags = 1 if is_win else max(2, min(6, cpu_cnt))
+            if is_win:
+                concurrent_frags = max(4, min(12, cpu_cnt * 2))
+            else:
+                concurrent_frags = max(2, min(6, cpu_cnt))
 
             base_opts = {
                 "format": "best",
@@ -1032,6 +1035,7 @@ class FlashStudyDownloaderApp:
             }
             if is_win:
                 base_opts["hls_use_mpegts"] = True
+                base_opts["http_chunk_size"] = 10 * 1024 * 1024
             else:
                 base_opts["external_downloader"] = "ffmpeg"
                 base_opts["external_downloader_args"] = {
@@ -1042,9 +1046,19 @@ class FlashStudyDownloaderApp:
                     ]
                 }
 
+            def _safe_opts_for_retry() -> dict:
+                safe_opts = dict(base_opts)
+                safe_opts["concurrent_fragment_downloads"] = 1
+                safe_opts.pop("http_chunk_size", None)
+                return safe_opts
+
             err = ""
             _cleanup_temp_files()
             err = _download_with_opts(base_opts)
+            if err and is_win:
+                append_download_log("FAIL", url, output_path, f"primary_failed: {err}")
+                _cleanup_temp_files()
+                err = _download_with_opts(_safe_opts_for_retry())
             if err:
                 append_download_log("FAIL", url, output_path, err)
                 raise RuntimeError(err)
