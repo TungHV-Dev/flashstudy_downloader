@@ -974,18 +974,11 @@ class FlashStudyDownloaderApp:
 
             def _cleanup_temp_files():
                 try:
-                    base = output_path
-                    dir_name = os.path.dirname(base) or "."
-                    stem = os.path.basename(base)
-                    for p in (base + ".part", base + ".ytdl", base + ".aria2"):
+                    stem = os.path.basename(output_path)
+                    base = os.path.join(output_dir, stem)
+                    for p in (base + ".ytdl", base + ".aria2"):
                         if os.path.exists(p):
                             os.remove(p)
-                    for name in os.listdir(dir_name):
-                        if name.startswith(stem + ".part"):
-                            try:
-                                os.remove(os.path.join(dir_name, name))
-                            except Exception:
-                                pass
                     if os.path.isdir(temp_dir):
                         for name in os.listdir(temp_dir):
                             if name.startswith(stem + ".part") or name.startswith(stem + ".f"):
@@ -1008,6 +1001,8 @@ class FlashStudyDownloaderApp:
             output_dir = os.path.dirname(output_path) or "."
             temp_dir = os.path.join(output_dir, ".ytdlp_tmp")
             os.makedirs(temp_dir, exist_ok=True)
+            temp_output_path = os.path.join(temp_dir, os.path.basename(output_path))
+            output_part_path = output_path + ".part"
 
             cpu_cnt = os.cpu_count() or 4
             is_win = sys.platform.startswith("win")
@@ -1018,7 +1013,7 @@ class FlashStudyDownloaderApp:
 
             base_opts = {
                 "format": "best",
-                "outtmpl": output_path,
+                "outtmpl": temp_output_path,
                 "merge_output_format": "mp4",
                 "ffmpeg_location": ffmpeg_bin,
                 "concurrent_fragment_downloads": concurrent_frags,
@@ -1059,8 +1054,24 @@ class FlashStudyDownloaderApp:
                 safe_opts.pop("http_chunk_size", None)
                 return safe_opts
 
+            def _finalize_output() -> None:
+                if not os.path.exists(temp_output_path):
+                    return
+                os.makedirs(output_dir, exist_ok=True)
+                try:
+                    os.replace(temp_output_path, output_path)
+                except Exception:
+                    shutil.move(temp_output_path, output_path)
+
             err = ""
             _cleanup_temp_files()
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+                if not os.path.exists(output_part_path):
+                    with open(output_part_path, "ab"):
+                        pass
+            except Exception:
+                pass
             err = _download_with_opts(base_opts)
             if err and is_win:
                 append_download_log("FAIL", url, output_path, f"primary_failed: {err}")
@@ -1070,6 +1081,7 @@ class FlashStudyDownloaderApp:
                 append_download_log("FAIL", url, output_path, err)
                 raise RuntimeError(err)
 
+            _finalize_output()
             _cleanup_temp_files()
             append_download_log("SUCCESS", url, output_path, "")
             return 0
