@@ -461,6 +461,8 @@ class FlashStudyDownloaderApp:
                 idx = item["index"]
                 url = item["url"]
                 video_id = item["video_id"]
+                status_info = (status_map or {}).get(video_id, {}) if video_id else {}
+                status = status_info.get("status") or "not_found"
                 tk.Label(video_frame, text=f"Video {idx}", bg="#FFFFFF", fg="#0F172A").grid(
                     row=idx - 1, column=0, sticky="w", pady=(0, 4)
                 )
@@ -471,13 +473,18 @@ class FlashStudyDownloaderApp:
                 )
                 download_btn.grid(row=idx - 1, column=1, sticky="e", padx=(16, 0), pady=(0, 4))
                 download_btn.configure(
-                    command=lambda u=url, idx=idx, vid=video_id: self._enqueue_video_job(
-                        u, title, idx, lesson_id, vid
+                    command=lambda u=url, idx=idx, vid=video_id, dbtn=download_btn: self._enqueue_video_job(
+                        u, title, idx, lesson_id, vid, dbtn
                     )
                 )
 
+                video_items[idx - 1]["download_btn"] = download_btn
+
                 if not url:
                     download_btn.state(["disabled"])
+                else:
+                    if status in ("queued", "in_progress"):
+                        download_btn.config(text="Đang chờ server xử lý ...", state="disabled")
         else:
             tk.Label(video_frame, text="Video", bg="#FFFFFF", fg="#0F172A").grid(
                 row=0, column=0, sticky="w", pady=(0, 4)
@@ -525,9 +532,25 @@ class FlashStudyDownloaderApp:
             win.destroy()
         win.protocol("WM_DELETE_WINDOW", _on_popup_close)
 
+        def _refresh_statuses():
+            ids = [v.get("video_id") for v in video_items if v.get("video_id")]
+            latest = self._fetch_download_statuses(ids)
+            for v in video_items:
+                vid = v.get("video_id")
+                status_info = (latest or {}).get(vid, {}) if vid else {}
+                status = status_info.get("status") or "not_found"
+                d_btn = v.get("download_btn")
+                if not d_btn:
+                    continue
+                if status in ("queued", "in_progress"):
+                    d_btn.config(text="Đang chờ server xử lý ...", state="disabled")
+                else:
+                    d_btn.config(text="Tải về", state="normal")
+
         # --- Buttons (Đóng/Refresh) ---
         btns = tk.Frame(container, bg=popup_bg)
         btns.pack(fill="x", pady=(8, 0))
+        ttk.Button(btns, text="Reset trạng thái", command=_refresh_statuses).pack(side="left")
         ttk.Button(btns, text="Đóng", command=_on_popup_close).pack(side="right")
 
         # Không dùng downloader trong màn này
@@ -565,6 +588,7 @@ class FlashStudyDownloaderApp:
         index: int,
         lesson_id: str,
         video_id: str,
+        download_btn=None,
     ):
         fixed_url = self._normalize_video_url(url)
         if not fixed_url:
@@ -590,6 +614,8 @@ class FlashStudyDownloaderApp:
             messagebox.showerror("Lỗi", data_or_err or "Không thể tạo job tải video.")
             return
         messagebox.showinfo("Thông báo", "Đã đưa video vào hàng đợi tải. Vui lòng kiểm tra trạng thái.")
+        if download_btn and download_btn.winfo_exists():
+            download_btn.config(text="Đang chờ server xử lý ...", state="disabled")
 
     def _show_drive_link(self, link: str):
         if not link:
