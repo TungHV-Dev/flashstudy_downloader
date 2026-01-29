@@ -6,11 +6,12 @@ import time
 import sys 
 import subprocess
 import re
+import hashlib
 import shutil
 import stat
 from tkinter import filedialog as fd
 from tkinter import messagebox, ttk, simpledialog
-from core.api import FlashStudyAPI, verify_license
+from core.api import FlashStudyAPI, verify_license, enqueue_download_job, get_download_statuses, get_drive_link
 from core.utils import load_config, append_download_log, save_config, ensure_resource_dir, get_device_info
 
 def app_root_dir() -> str:
@@ -447,23 +448,36 @@ class FlashStudyDownloaderApp:
         video_frame = tk.Frame(container, bg="#FFFFFF", padx=12, pady=12, highlightthickness=1, highlightbackground="#E2E8F0")
         video_frame.pack(fill="x", pady=(6, 10))
 
-        if video_urls:
-            for idx, url in enumerate(video_urls, start=1):
+        video_items = []
+        for idx, url in enumerate(video_urls, start=1):
+            fixed_url = self._normalize_video_url(url)
+            vid = self._video_id_from_url(fixed_url)
+            video_items.append({"index": idx, "url": fixed_url, "video_id": vid})
+
+        status_map = self._fetch_download_statuses([v["video_id"] for v in video_items])
+
+        if video_items:
+            for item in video_items:
+                idx = item["index"]
+                url = item["url"]
+                video_id = item["video_id"]
                 tk.Label(video_frame, text=f"Video {idx}", bg="#FFFFFF", fg="#0F172A").grid(
                     row=idx - 1, column=0, sticky="w", pady=(0, 4)
                 )
-                btn = ttk.Button(
+                download_btn = ttk.Button(
                     video_frame,
                     text="Tải về",
                     style="Primary.TButton",
-                    command=lambda u=url, idx=idx: self._download_video_from_url(u, title, idx),
                 )
-                btn.grid(row=idx - 1, column=1, sticky="e", padx=(16, 0), pady=(0, 4))
-                if not url:
-                    btn.state(["disabled"])
-                    tk.Label(video_frame, text="File chưa được up lên hệ thống", bg="#FFFFFF", fg="#64748B").grid(
-                        row=idx - 1, column=2, sticky="w", padx=(12, 0)
+                download_btn.grid(row=idx - 1, column=1, sticky="e", padx=(16, 0), pady=(0, 4))
+                download_btn.configure(
+                    command=lambda u=url, idx=idx, vid=video_id: self._enqueue_video_job(
+                        u, title, idx, lesson_id, vid
                     )
+                )
+
+                if not url:
+                    download_btn.state(["disabled"])
         else:
             tk.Label(video_frame, text="Video", bg="#FFFFFF", fg="#0F172A").grid(
                 row=0, column=0, sticky="w", pady=(0, 4)
@@ -511,7 +525,7 @@ class FlashStudyDownloaderApp:
             win.destroy()
         win.protocol("WM_DELETE_WINDOW", _on_popup_close)
 
-        # --- Buttons (Đóng) ---
+        # --- Buttons (Đóng/Refresh) ---
         btns = tk.Frame(container, bg=popup_bg)
         btns.pack(fill="x", pady=(8, 0))
         ttk.Button(btns, text="Đóng", command=_on_popup_close).pack(side="right")
@@ -523,24 +537,69 @@ class FlashStudyDownloaderApp:
             return ""
         return url.replace("/Data/", "/DataNew/", 1)
 
-    def _download_video_from_url(self, url: str, lesson_title: str, index: int):
+    def _video_id_from_url(self, url: str) -> str:
+        if not url:
+            return ""
+        return hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+
+    def _status_text(self, status: str) -> str:
+        mapping = {
+            "queued": "Đang chờ",
+            "in_progress": "Đang tải",
+            "completed": "Hoàn tất",
+            "failed": "Lỗi",
+            "not_found": "Chưa có",
+        }
+        return mapping.get(status or "", "Chưa có")
+
+    def _fetch_download_statuses(self, video_ids: list[str]) -> dict:
+        ok, data_or_err = get_download_statuses(self.configuration, video_ids)
+        if not ok:
+            return {}
+        return data_or_err if isinstance(data_or_err, dict) else {}
+
+    def _enqueue_video_job(
+        self,
+        url: str,
+        lesson_title: str,
+        index: int,
+        lesson_id: str,
+        video_id: str,
+    ):
         fixed_url = self._normalize_video_url(url)
         if not fixed_url:
             messagebox.showwarning("Thiếu link", "Không có đường dẫn video.")
             return
 
-        folder = self._select_download_dir()
-        if not folder:
-            return
+        ok, data_or_err = get_drive_link(self.configuration, video_id)
+        if ok:
+            link = (data_or_err or {}).get("drive_link")
+            if link:
+                self._show_drive_link(link)
+                return
 
-        out_name = f"{self._sanitize_filename(lesson_title)}_{index}"
-        out_final = os.path.join(folder, out_name + ".mp4")
-
-        ok, err = self.download_video_by_ytdlp(fixed_url, out_final)
+        title = f"{lesson_title} - Video {index}"
+        ok, data_or_err = enqueue_download_job(
+            self.configuration,
+            video_id,
+            fixed_url,
+            title=title,
+            lesson_id=lesson_id,
+        )
         if not ok:
-            messagebox.showerror("Lỗi", err or "Không thể tải video.")
+            messagebox.showerror("Lỗi", data_or_err or "Không thể tạo job tải video.")
             return
-        messagebox.showinfo("Thông báo", "Video đang được tải, vui lòng kiểm tra lại sau.")
+        messagebox.showinfo("Thông báo", "Đã đưa video vào hàng đợi tải. Vui lòng kiểm tra trạng thái.")
+
+    def _show_drive_link(self, link: str):
+        if not link:
+            messagebox.showwarning("Thiếu link", "Chưa có link tải.")
+            return
+        try:
+            import webbrowser
+            webbrowser.open_new_tab(link)
+        except Exception:
+            pass
 
     def _open_exam_link(self, lesson_id: str):
         code, data = self._fetch_lesson_details(lesson_id)

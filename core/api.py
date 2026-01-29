@@ -40,13 +40,126 @@ def verify_license(config: Dict[str, Any], device_info: Dict[str, Any]) -> Tuple
                 msg = (resp.json() or {}).get("message")
             except Exception:
                 msg = None
+            log_event("ext_verify_license", "FAIL", msg or f"status={resp.status_code}")
             return False, msg or f"License verify thất bại: status={resp.status_code}"
         data = resp.json() or {}
         if data.get("code") != 0:
+            log_event("ext_verify_license", "FAIL", data.get("message") or "invalid")
             return False, data.get("message") or "License không hợp lệ"
+        log_event("ext_verify_license", "SUCCESS")
         return True, data.get("data") or {}
     except Exception as exc:
+        log_event("ext_verify_license", "FAIL", str(exc))
         return False, f"Lỗi verify license: {exc}"
+
+def enqueue_download_job(
+    config: Dict[str, Any],
+    video_id: str,
+    video_url: str,
+    title: str | None = None,
+    lesson_id: str | None = None,
+    course_id: str | None = None,
+    video_key_token: str | None = None,
+) -> Tuple[bool, Dict[str, Any] | str]:
+    base = config.get("backend_base_url")
+    if not base:
+        return False, "Thiếu backend_base_url trong .conf.json"
+    if not video_id or not video_url:
+        return False, "Thiếu video_id hoặc video_url"
+    payload = {
+        "video_id": video_id,
+        "video_url": video_url,
+        "title": title,
+        "lesson_id": lesson_id,
+        "course_id": course_id,
+        "video_key_token": video_key_token or config.get("video_key_token"),
+    }
+    try:
+        resp = requests.post(
+            f"{base}/flashstudy/download/enqueue",
+            json=payload,
+            headers=backend_headers(config),
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            try:
+                msg = (resp.json() or {}).get("message")
+            except Exception:
+                msg = None
+            log_event("ext_enqueue_download", "FAIL", msg or f"status={resp.status_code}")
+            return False, msg or f"Enqueue thất bại: status={resp.status_code}"
+        data = resp.json() or {}
+        if data.get("code") != 0:
+            log_event("ext_enqueue_download", "FAIL", data.get("message") or "failed")
+            return False, data.get("message") or "Enqueue thất bại"
+        log_event("ext_enqueue_download", "SUCCESS")
+        return True, data.get("data") or {}
+    except Exception as exc:
+        log_event("ext_enqueue_download", "FAIL", str(exc))
+        return False, f"Lỗi enqueue download: {exc}"
+
+
+def get_download_statuses(
+    config: Dict[str, Any], video_ids: list[str]
+) -> Tuple[bool, Dict[str, Any] | str]:
+    base = config.get("backend_base_url")
+    if not base:
+        return False, "Thiếu backend_base_url trong .conf.json"
+    if not video_ids:
+        return True, {}
+    try:
+        resp = requests.post(
+            f"{base}/flashstudy/download/status-by-video",
+            json={"video_ids": video_ids},
+            headers=backend_headers(config),
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            try:
+                msg = (resp.json() or {}).get("message")
+            except Exception:
+                msg = None
+            log_event("ext_get_status", "FAIL", msg or f"status={resp.status_code}")
+            return False, msg or f"Lỗi lấy status: status={resp.status_code}"
+        data = resp.json() or {}
+        if data.get("code") != 0:
+            log_event("ext_get_status", "FAIL", data.get("message") or "failed")
+            return False, data.get("message") or "Lỗi lấy status"
+        log_event("ext_get_status", "SUCCESS")
+        return True, data.get("data") or {}
+    except Exception as exc:
+        log_event("ext_get_status", "FAIL", str(exc))
+        return False, f"Lỗi lấy status: {exc}"
+
+
+def get_drive_link(config: Dict[str, Any], video_id: str) -> Tuple[bool, Dict[str, Any] | str]:
+    base = config.get("backend_base_url")
+    if not base:
+        return False, "Thiếu backend_base_url trong .conf.json"
+    if not video_id:
+        return False, "Thiếu video_id"
+    try:
+        resp = requests.get(
+            f"{base}/flashstudy/download/link/{video_id}",
+            headers=backend_headers(config),
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            try:
+                msg = (resp.json() or {}).get("message")
+            except Exception:
+                msg = None
+            log_event("ext_get_link", "FAIL", msg or f"status={resp.status_code}")
+            return False, msg or f"Lỗi lấy link: status={resp.status_code}"
+        data = resp.json() or {}
+        if data.get("code") != 0:
+            log_event("ext_get_link", "FAIL", data.get("message") or "failed")
+            return False, data.get("message") or "Lỗi lấy link"
+        log_event("ext_get_link", "SUCCESS")
+        return True, data.get("data") or {}
+    except Exception as exc:
+        log_event("ext_get_link", "FAIL", str(exc))
+        return False, f"Lỗi lấy link: {exc}"
 
 
 class FlashStudyAPI:
@@ -66,23 +179,18 @@ class FlashStudyAPI:
                 token = ((data or {}).get("data") or {}).get("access_token")
                 if token:
                     self.token = token
-                    log_event("login", "SUCCESS")
                     return 0, token
-                log_event("login", "FAIL", "missing access_token")
                 return -1, {
                     "status_code": status.get("code", resp.status_code),
                     "message": "Missing access_token in response",
                 }
-            log_event("login", "FAIL", status.get("message", "Login failed"))
             return -1, {
                 "status_code": status.get("code", resp.status_code),
                 "message": status.get("message", "Login failed"),
             }
         except requests.RequestException as e:
-            log_event("login", "FAIL", str(e))
             return -1, {"status_code": -1, "message": str(e)}
         except json.JSONDecodeError:
-            log_event("login", "FAIL", "Invalid JSON response")
             return -1, {"status_code": -1, "message": "Invalid JSON response"}
         
     def get_my_courses(self):
@@ -109,18 +217,14 @@ class FlashStudyAPI:
                             "expired_time": course.get("expired_time") or "",
                         }
                     )
-                log_event("get_my_courses", "SUCCESS")
                 return 0, results
-            log_event("get_my_courses", "FAIL", status.get("message", "Fetch courses failed"))
             return -1, {
                 "status_code": status.get("code", resp.status_code),
                 "message": status.get("message", "Fetch courses failed"),
             }
         except requests.RequestException as e:
-            log_event("get_my_courses", "FAIL", str(e))
             return -1, {"status_code": -1, "message": str(e)}
         except json.JSONDecodeError:
-            log_event("get_my_courses", "FAIL", "Invalid JSON response")
             return -1, {"status_code": -1, "message": "Invalid JSON response"}
 
     def get_course_detail(self, course_id: int):
@@ -154,18 +258,14 @@ class FlashStudyAPI:
                             "children": child_items,
                         }
                     )
-                log_event("get_course_detail", "SUCCESS")
                 return 0, results
-            log_event("get_course_detail", "FAIL", status.get("message", "Fetch course detail failed"))
             return -1, {
                 "status_code": status.get("code", resp.status_code),
                 "message": status.get("message", "Fetch course detail failed"),
             }
         except requests.RequestException as e:
-            log_event("get_course_detail", "FAIL", str(e))
             return -1, {"status_code": -1, "message": str(e)}
         except json.JSONDecodeError:
-            log_event("get_course_detail", "FAIL", "Invalid JSON response")
             return -1, {"status_code": -1, "message": "Invalid JSON response"}
 
     def get_lesson_detail(self, lesson_id: int):
@@ -180,7 +280,6 @@ class FlashStudyAPI:
                 lesson = ((data or {}).get("data") or {}).get("lesson") or {}
                 lesson_type = lesson.get("type")
                 if lesson_type == 5:
-                    log_event("get_lesson_detail", "SUCCESS")
                     return 0, {
                         "lesson_id": lesson.get("id"),
                         "lesson_name": lesson.get("name") or "",
@@ -197,16 +296,12 @@ class FlashStudyAPI:
                     "document_url": lesson.get("document_url") or "",
                     "document_answer_url": lesson.get("document_answer_url") or "",
                 }
-                log_event("get_lesson_detail", "SUCCESS")
                 return 0, result
-            log_event("get_lesson_detail", "FAIL", status.get("message", "Fetch lesson detail failed"))
             return -1, {
                 "status_code": status.get("code", resp.status_code),
                 "message": status.get("message", "Fetch lesson detail failed"),
             }
         except requests.RequestException as e:
-            log_event("get_lesson_detail", "FAIL", str(e))
             return -1, {"status_code": -1, "message": str(e)}
         except json.JSONDecodeError:
-            log_event("get_lesson_detail", "FAIL", "Invalid JSON response")
             return -1, {"status_code": -1, "message": "Invalid JSON response"}
