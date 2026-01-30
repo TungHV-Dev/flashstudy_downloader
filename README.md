@@ -1,12 +1,12 @@
 # Packaging Tool
 ## Windows
 ```bash
-pyinstaller app.py --name flashstudy_downloader --onefile --noconsole --icon app_resource\downloader.ico --add-binary=ffmpeg\win\ffmpeg.exe:ffmpeg --paths .
+pyinstaller app.py --name flashstudy_downloader --onefile --noconsole --icon app_resource\downloader.ico --paths .
 ```
 
 ## MacOS
 ```bash
-pyinstaller app.py --name flashstudy_downloader --onefile --noconsole --icon app_resource/downloader.icns --add-binary=ffmpeg/mac/ffmpeg:ffmpeg --paths .
+pyinstaller app.py --name flashstudy_downloader --onefile --noconsole --icon app_resource/downloader.icns --paths .
 ```
 
 ## Test account
