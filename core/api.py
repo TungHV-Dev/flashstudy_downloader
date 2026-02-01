@@ -162,6 +162,37 @@ def get_drive_link(config: Dict[str, Any], video_id: str) -> Tuple[bool, Dict[st
         return False, f"Lỗi lấy link: {exc}"
 
 
+def schedule_cleanup(config: Dict[str, Any], video_id: str) -> Tuple[bool, Dict[str, Any] | str]:
+    base = config.get("backend_base_url")
+    if not base:
+        return False, "Thiếu backend_base_url trong .conf.json"
+    if not video_id:
+        return False, "Thiếu video_id"
+    try:
+        resp = requests.post(
+            f"{base}/flashstudy/download/schedule-cleanup",
+            json={"video_id": video_id},
+            headers=backend_headers(config),
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            try:
+                msg = (resp.json() or {}).get("message")
+            except Exception:
+                msg = None
+            log_event("ext_schedule_cleanup", "FAIL", msg or f"status={resp.status_code}")
+            return False, msg or f"Lỗi schedule cleanup: status={resp.status_code}"
+        data = resp.json() or {}
+        if data.get("code") != 0:
+            log_event("ext_schedule_cleanup", "FAIL", data.get("message") or "failed")
+            return False, data.get("message") or "Lỗi schedule cleanup"
+        log_event("ext_schedule_cleanup", "SUCCESS")
+        return True, data.get("data") or {}
+    except Exception as exc:
+        log_event("ext_schedule_cleanup", "FAIL", str(exc))
+        return False, f"Lỗi schedule cleanup: {exc}"
+
+
 class FlashStudyAPI:
     def __init__(self):
         self.token = ""

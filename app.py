@@ -7,7 +7,14 @@ import subprocess
 import re
 import hashlib
 from tkinter import messagebox, ttk, simpledialog
-from core.api import FlashStudyAPI, verify_license, enqueue_download_job, get_download_statuses, get_drive_link
+from core.api import (
+    FlashStudyAPI,
+    verify_license,
+    enqueue_download_job,
+    get_download_statuses,
+    get_drive_link,
+    schedule_cleanup,
+)
 from core.utils import load_config, save_config, ensure_resource_dir, get_device_info
 
 def app_root_dir() -> str:
@@ -586,6 +593,7 @@ class FlashStudyDownloaderApp:
             link = (data_or_err or {}).get("drive_link")
             if link:
                 self._show_drive_link(link)
+                schedule_cleanup(self.configuration, video_id)
                 return
 
         title = f"{lesson_title} - Video {index}"
